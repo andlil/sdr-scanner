@@ -121,7 +121,7 @@ class NfmDemodulator:
         a = math.exp(-2 * math.pi * 300 / AUDIO_RATE)
         self._de_b, self._de_a = [1 - a], [1, -a]
         self._de_zi = np.zeros(1)
-        self._agc = 0.1
+        self._agc = 0.02
 
     def reset(self):
         self._prev = np.complex64(0)
@@ -137,14 +137,20 @@ class NfmDemodulator:
         audio, self._de_zi = signal.lfilter(self._de_b, self._de_a, audio, zi=self._de_zi)
         return self._level(audio)
 
+    TARGET_RMS = 0.35           # about -12 dBFS average level after the limiter
+    MAX_GAIN = 40.0
+
     def _level(self, audio):
-        # Slow peak-following AGC so all channels play at a similar loudness.
-        peak = float(np.max(np.abs(audio))) if len(audio) else 0.0
-        if peak > self._agc:
-            self._agc += 0.3 * (peak - self._agc)
-        else:
-            self._agc += 0.002 * (peak - self._agc)
-        gain = min(0.5 / max(self._agc, 1e-4), 40.0)
+        # AGC on the average (RMS) level, so all channels play equally loud:
+        # quick to turn down (~0.1 s), slow to turn up again (~5 s) so pauses
+        # between words don't pump up the noise. tanh then rounds off the
+        # peaks instead of clipping them.
+        if not len(audio):
+            return audio.astype(np.float32)
+        rms = float(np.sqrt(np.mean(audio * audio)))
+        rate = 0.3 if rms > self._agc else 0.005
+        self._agc += rate * (rms - self._agc)
+        gain = min(self.TARGET_RMS / max(self._agc, 1e-4), self.MAX_GAIN)
         return np.tanh(audio * gain).astype(np.float32)
 
 
