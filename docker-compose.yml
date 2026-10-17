@@ -1,0 +1,27 @@
+services:
+  scanner:
+    build: .
+    image: sdr-scanner
+    container_name: sdr-scanner
+    restart: unless-stopped
+    # Host networking: WebRTC needs the browser to reach the Pi's real IP
+    # address on random UDP ports, which Docker's bridge network would hide.
+    network_mode: host
+    # USB access to the SDR, including when it is unplugged and plugged back in.
+    volumes:
+      - /dev/bus/usb:/dev/bus/usb
+      - ./data:/data
+    device_cgroup_rules:
+      - "c 189:* rmw"
+    environment:
+      # "" = first SDR found, or e.g. driver=rtlsdr / driver=airspyhf / driver=sim
+      SDR_DEVICE: ""
+      # "auto" (AGC) or a fixed gain in dB, e.g. 35
+      SDR_GAIN: "auto"
+      # Frequency correction for the RTL-SDR in ppm
+      SDR_PPM: "0"
+      # Seconds to stay on a channel after the signal disappears
+      HANG_TIME: "2.0"
+      # Start scanning when the container starts
+      AUTOSTART: "1"
+      PORT: "8080"

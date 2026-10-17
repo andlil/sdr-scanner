@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SDR Scanner</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<main>
+  <header>
+    <h1>SDR Scanner</h1>
+    <span id="conn" class="pill">Connecting…</span>
+  </header>
+
+  <section class="display" aria-live="polite">
+    <div class="row">
+      <span id="state" class="state">—</span>
+      <span id="device" class="device"></span>
+    </div>
+    <div id="chname" class="chname">&nbsp;</div>
+    <div class="row">
+      <span id="chfreq" class="chfreq">&nbsp;</span>
+      <span id="snr" class="snr"></span>
+    </div>
+    <div class="meter"><div id="meterbar"></div><div id="metermark"></div></div>
+    <div id="error" class="error" hidden></div>
+  </section>
+
+  <section class="controls">
+    <div class="transport">
+      <button id="btn-start" title="Start scanning">▶ Scan</button>
+      <button id="btn-pause" title="Hold on the current channel">❚❚ Pause</button>
+      <button id="btn-stop" title="Stop the receiver">■ Stop</button>
+    </div>
+    <label class="volume">
+      <button id="btn-mute" class="icon" title="Mute">🔊</button>
+      <input id="volume" type="range" min="0" max="100" value="80" aria-label="Volume">
+      <span id="volval">80%</span>
+    </label>
+  </section>
+
+  <section class="channels">
+    <h2>Channels</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>On</th><th>Name</th><th>Frequency</th><th>BW</th><th>Signal</th><th></th></tr></thead>
+        <tbody id="chlist"></tbody>
+      </table>
+    </div>
+    <form id="addform" class="addform">
+      <input name="name" placeholder="Channel name" required maxlength="40">
+      <input name="freq" placeholder="MHz, e.g. 446.00625" required inputmode="decimal">
+      <select name="bw"><option value="12500">12.5 kHz</option><option value="25000">25 kHz</option></select>
+      <button type="submit">Add channel</button>
+    </form>
+  </section>
+</main>
+
+<div id="unmute" class="overlay" hidden><button>Click to start audio</button></div>
+<audio id="audio" autoplay></audio>
+<script src="/static/app.js"></script>
+</body>
+</html>
