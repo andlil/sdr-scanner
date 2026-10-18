@@ -35,7 +35,7 @@ FROM debian:trixie-slim
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       python3 python3-numpy python3-scipy python3-aiohttp \
-      python3-soapysdr soapysdr0.8-module-rtlsdr libairspyhf1 \
+      python3-soapysdr soapysdr0.8-module-rtlsdr rtl-sdr libairspyhf1 \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=airspyhf /out/ /
 COPY --from=pydeps /opt/pydeps /opt/pydeps

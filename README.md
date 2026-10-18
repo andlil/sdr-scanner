@@ -71,6 +71,33 @@ Set these under `environment:` in `docker-compose.yml`:
 | `PORT`        | `8080`  | HTTP port. |
 | `STUN_SERVER` | unset   | e.g. `stun:stun.l.google.com:19302`. Only needed when listening from outside the LAN. |
 
+### Choosing a receiver
+
+With more than one receiver connected, set `SDR_DEVICE` to choose one by
+serial number. To list the connected receivers and the exact value to use:
+
+```sh
+docker compose stop          # free the receivers that the scanner holds
+docker compose run --rm scanner python3 -m app.devices
+```
+
+```
+Airspy HF+   AirSpy HF+ [dd52978026ba4686]
+    SDR_DEVICE: "driver=airspyhf,serial=dd52978026ba4686"
+```
+
+If no connected receiver has that serial, the scanner refuses to start and
+shows the receivers it found. It never falls back to another receiver.
+
+RTL-SDR dongles often leave the factory with the same serial (`00000001`).
+To give each one its own serial, plug in one dongle at a time and run:
+
+```sh
+docker compose run --rm scanner rtl_eeprom -s 00000002
+```
+
+Then unplug and replug the dongle.
+
 Receiver coverage:
 
 | Receiver   | Range                             | Sample rate used |

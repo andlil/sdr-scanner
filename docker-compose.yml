@@ -16,7 +16,11 @@ services:
     device_cgroup_rules:
       - "c 189:* rmw"
     environment:
-      # "" = first SDR found, or e.g. driver=rtlsdr / driver=airspyhf / driver=sim
+      # "" = first SDR found, or e.g. driver=rtlsdr / driver=airspyhf / driver=sim.
+      # With several receivers of the same type, pick one by serial number:
+      #   driver=airspyhf,serial=dd52978026ba4686
+      # List connected receivers and their serials with:
+      #   docker compose stop && docker compose run --rm scanner python3 -m app.devices
       SDR_DEVICE: ""
       # "auto" (AGC) or a fixed gain in dB, e.g. 35
       SDR_GAIN: "auto"

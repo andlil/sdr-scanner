@@ -113,6 +113,7 @@ class Scanner:
             "state": self.state,
             "error": self.error,
             "device": src.name if src else None,
+            "serial": src.serial if src else None,
             "sample_rate": src.sample_rate if src else None,
             "active": ({"id": active["id"], "name": active["name"], "freq": active["freq"]}
                        if active else None),

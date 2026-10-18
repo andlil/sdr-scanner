@@ -15,8 +15,27 @@ log = logging.getLogger(__name__)
 PREFERRED_RATES = (1_024_000, 768_000, 384_000, 256_000)
 
 
+DRIVER_NAMES = {"rtlsdr": "RTL-SDR", "airspyhf": "Airspy HF+"}
+
+
 class SourceError(RuntimeError):
     pass
+
+
+def list_devices():
+    """Receivers SoapySDR can see, as dicts (driver, serial, label, ...)."""
+    import SoapySDR
+    return [dict(d) for d in SoapySDR.Device.enumerate()
+            if d["driver"] not in ("audio", "remote")]
+
+
+def connected_devices():
+    """Human-readable list of connected receivers, for error messages."""
+    devs = list_devices()
+    if not devs:
+        return "No receivers are connected. Is it plugged in?"
+    return "Connected: " + "; ".join(
+        f"driver={d['driver']},serial={d.get('serial', '?')}" for d in devs) + "."
 
 
 class SoapySource:
@@ -30,6 +49,7 @@ class SoapySource:
         self.dev = None
         self.stream = None
         self.name = "?"
+        self.serial = ""
         self.sample_rate = 0
         self.freq_ranges = []
         self.center = 0
@@ -38,16 +58,24 @@ class SoapySource:
         import SoapySDR
         from SoapySDR import SOAPY_SDR_CF32, SOAPY_SDR_RX
 
-        # Open directly: with SoapyRTLSDR 0.3.3, enumerating first leaves the
-        # dongle claimed and the subsequent open fails with "no match".
+        wanted = dict(SoapySDR.KwargsFromString(self.args))
+        if wanted.get("serial") and not SoapySDR.Device.enumerate(self.args):
+            # Must check first: SoapyAirspyHF opens *any* Airspy when the
+            # serial doesn't match, which would silently pick the wrong one.
+            raise SourceError(f"no receiver with serial {wanted['serial']} "
+                              f"(SDR_DEVICE={self.args!r}). {connected_devices()}")
         try:
             self.dev = SoapySDR.Device(self.args)
         except RuntimeError:
-            raise SourceError(f"no SDR found (SDR_DEVICE={self.args!r}). Is it plugged in?") from None
+            raise SourceError(f"no SDR found (SDR_DEVICE={self.args!r}). {connected_devices()}") from None
         driver = self.dev.getDriverKey().lower()
         hw = dict(self.dev.getHardwareInfo())
-        self.name = f"{self.dev.getDriverKey()} {self.dev.getHardwareKey()}".strip()
-        log.info("opened SDR %s (%s) %s", self.name, driver, hw)
+        hw_key = self.dev.getHardwareKey()
+        self.name = DRIVER_NAMES.get(driver, self.dev.getDriverKey())
+        if hw_key and hw_key.lower() != driver:
+            self.name += f" {hw_key}"
+        self.serial = hw.get("serial") or wanted.get("serial") or ""
+        log.info("opened SDR %s, serial %s (%s) %s", self.name, self.serial or "?", driver, hw)
 
         self.sample_rate = self._pick_rate()
         self.dev.setSampleRate(SOAPY_SDR_RX, 0, self.sample_rate)
@@ -142,6 +170,7 @@ class SimulatedSource:
         self.sample_rate = sample_rate
         self.settle_s = settle_s
         self.name = "Simulator"
+        self.serial = ""
         self.NOISE_AMP = 0.01
         self.freq_ranges = [(24e6, 1766e6)]
         self.center = 0

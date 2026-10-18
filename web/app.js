@@ -148,7 +148,9 @@ function renderStatus() {
   if (s.state === "paused" && receiving) label = "PAUSED · RECEIVING";
   $("state").textContent = label;
   $("state").className = "state" + (receiving ? " rx" : "");
-  $("device").textContent = s.device ? `${s.device} · ${(s.sample_rate / 1e6).toFixed(3)} MS/s` : "";
+  $("device").textContent = s.device
+    ? [s.device, s.serial && `SN ${s.serial}`, `${(s.sample_rate / 1e6).toFixed(3)} MS/s`].filter(Boolean).join(" · ")
+    : "";
   $("chname").textContent = s.active ? s.active.name : (s.state === "scanning" ? "…" : " ");
   $("chfreq").textContent = s.active ? fmtMHz(s.active.freq) : " ";
   const lvl = s.active && s.levels ? s.levels[s.active.id] : null;
