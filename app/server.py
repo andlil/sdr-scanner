@@ -237,6 +237,20 @@ class App:
         return web.json_response({"sdp": answer, "type": pc.localDescription.type})
 
 
+@web.middleware
+async def revalidate(request, handler):
+    """Make browsers check for a newer page/script on every load.
+
+    Without this they may reuse an old app.js after an update, which can
+    break the page (new HTML with old script). Unchanged files are answered
+    with a cheap 304 Not Modified thanks to their ETag.
+    """
+    response = await handler(request)
+    if not request.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
 async def index(_request):
     return web.FileResponse(WEB_DIR / "index.html")
 
@@ -246,7 +260,7 @@ def main():
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     logging.getLogger("aioice").setLevel(logging.WARNING)
     app = App()
-    web_app = web.Application()
+    web_app = web.Application(middlewares=[revalidate])
     web_app.on_startup.append(app.startup)
     web_app.on_shutdown.append(app.shutdown)
     web_app.router.add_get("/", index)
