@@ -171,13 +171,18 @@ class AutoSquelch:
     window, such as a spur, raises it.
     """
 
-    OPEN_MIN_DB = 6.0       # never open below this SNR
+    OPEN_MIN_DB = 6.0       # never open below this SNR (before the user's offset)
     MARGIN_DB = 6.0         # open this far above the learned idle baseline
     HYSTERESIS_DB = 3.0     # close this far below the open threshold
+    # Floors so a negative offset can't put the squelch inside the noise
+    # (noise-only channels measure up to ~0.8 dB SNR).
+    FLOOR_OPEN_DB = 2.0
+    FLOOR_CLOSE_DB = 1.5
     WINDOW_S = 300.0        # how far back the minimum looks
     BUCKET_S = 15.0         # minimum kept per bucket, so memory stays small
 
-    def __init__(self):
+    def __init__(self, offset_db=0.0):
+        self.offset_db = offset_db  # user fine-tuning: <0 more sensitive, >0 stricter
         self.baseline_db = 0.0
         self.snr_db = -99.0
         self.is_open = False
@@ -187,11 +192,12 @@ class AutoSquelch:
 
     @property
     def open_db(self):
-        return max(self.OPEN_MIN_DB, self.baseline_db + self.MARGIN_DB)
+        auto = max(self.OPEN_MIN_DB, self.baseline_db + self.MARGIN_DB)
+        return max(self.FLOOR_OPEN_DB, auto + self.offset_db)
 
     @property
     def close_db(self):
-        return self.open_db - self.HYSTERESIS_DB
+        return max(self.FLOOR_CLOSE_DB, self.open_db - self.HYSTERESIS_DB)
 
     def update(self, power, noise, now=None):
         """Feed a power measurement; returns is_open.

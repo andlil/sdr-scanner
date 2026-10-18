@@ -43,6 +43,14 @@ h2 { font-size: 16px; margin: 0 0 8px; color: var(--muted); font-weight: 600; }
 .meter { position: relative; height: 8px; background: rgba(125,255,154,.12); border-radius: 4px; margin-top: 12px; overflow: hidden; }
 #meterbar { height: 100%; width: 0; background: var(--lcd-text); transition: width .15s; }
 #metermark { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--warn); left: 0; }
+.sqadj { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 14px; }
+.sqadj button {
+  background: transparent; color: var(--lcd-text); border: 1px solid #2c5a37;
+  min-width: 40px; min-height: 34px; padding: 2px 10px; font: inherit; font-size: 18px; line-height: 1;
+}
+.sqadj button:hover { border-color: var(--lcd-text); }
+.sqadj button:disabled { opacity: .35; cursor: default; }
+#sqval { min-width: 4.5em; text-align: center; }
 .error { margin-top: 10px; color: var(--bad); font-family: system-ui, sans-serif; font-size: 14px; }
 
 .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin: 14px 0 22px; }
@@ -83,7 +91,7 @@ td input[type=checkbox] { width: auto; accent-color: var(--accent); }
 .note { font-size: 12px; color: var(--warn); }
 
 .addform { display: grid; grid-template-columns: 2fr 2fr 1fr auto; gap: 8px; margin-top: 10px; }
-.editform { display: grid; grid-template-columns: 2fr 2fr 1fr auto; gap: 8px; }
+.editform { display: grid; grid-template-columns: 2fr 2fr 1fr 1.3fr auto; gap: 8px; }
 .editbuttons { display: flex; gap: 6px; }
 
 /* Phones: show only On, Name, Signal and the buttons. */

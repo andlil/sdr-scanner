@@ -162,6 +162,12 @@ SDR ──SoapySDR──▶ scanner thread ──audio──┬─▶ WebRTC Opu
   hold the scanner. The squelch opens at `max(6 dB, baseline + 6 dB)`, with
   3 dB of hysteresis, and the scanner re-measures once before stopping on a
   channel.
+- **Squelch fine-tuning.** Each channel has a squelch adjustment from
+  −4 to +12 dB relative to the automatic level, set with the − / + buttons
+  under the meter while the channel is playing, or in its Edit form.
+  Negative values let weaker signals through, with more static; at −4 the
+  squelch opens at 2 dB SNR. It never opens below 2 dB or closes below
+  1.5 dB, so it stays above the noise itself.
 - **Demodulation.** FM discriminator, 300–3400 Hz voice band-pass (removes
   CTCSS tones), 300 Hz de-emphasis, and a slow AGC so all channels play at
   a similar loudness. Audio is 16 kHz and is Opus-encoded by aiortc.

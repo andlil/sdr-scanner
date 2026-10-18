@@ -281,6 +281,14 @@ function renderStatus() {
   $("snr").textContent = lvl ? `SNR ${lvl.snr.toFixed(1)} dB · squelch ${lvl.open_db.toFixed(1)} dB` : "";
   $("meterbar").style.width = (lvl ? pct(lvl.snr) : 0) + "%";
   $("metermark").style.left = (lvl ? pct(lvl.open_db) : 0) + "%";
+  const activeCh = s.active && channels.find((c) => c.id === s.active.id);
+  $("sqadj").hidden = !activeCh;
+  if (activeCh) {
+    const off = activeCh.squelch ?? 0;
+    $("sqval").textContent = squelchLabel(off);
+    $("sq-down").disabled = off <= SQUELCH_MIN;
+    $("sq-up").disabled = off >= SQUELCH_MAX;
+  }
   $("error").hidden = !s.error;
   $("error").textContent = s.error || "";
   $("btn-start").classList.toggle("active", s.state === "scanning");
@@ -290,6 +298,20 @@ function renderStatus() {
     tr.classList.toggle("current", !!(s.active && tr.dataset.id === s.active.id));
   });
 }
+
+// Per-channel squelch fine-tuning, dB relative to the automatic level
+// (limits match app/channels.py).
+const SQUELCH_MIN = -4, SQUELCH_MAX = 12;
+const squelchLabel = (off) => (off === 0 ? "auto" : `${off > 0 ? "+" : "−"}${Math.abs(off)} dB`);
+
+function adjustSquelch(delta) {
+  const ch = status.active && channels.find((c) => c.id === status.active.id);
+  if (!ch) return;
+  const off = Math.max(SQUELCH_MIN, Math.min(SQUELCH_MAX, (ch.squelch ?? 0) + delta));
+  send({ type: "channel.update", id: ch.id, changes: { squelch: off } });
+}
+$("sq-down").addEventListener("click", () => adjustSquelch(-1));
+$("sq-up").addEventListener("click", () => adjustSquelch(+1));
 
 const pct = (db) => Math.max(0, Math.min(100, (db / METER_MAX_DB) * 100));
 
@@ -325,16 +347,23 @@ function renderChannels() {
           <input class="e-name" maxlength="40" placeholder="Channel name" aria-label="Channel name">
           <input class="e-freq" inputmode="decimal" placeholder="MHz" aria-label="Frequency in MHz">
           <select class="e-bw" aria-label="Bandwidth"><option value="12500">12.5 kHz</option><option value="25000">25 kHz</option></select>
+          <select class="e-sq" aria-label="Squelch" title="Squelch relative to automatic: lower hears weaker signals"></select>
           <span class="editbuttons"><button class="e-save">Save</button><button class="e-cancel">Cancel</button></span>
         </div></td>`;
       tr.querySelector(".e-name").value = ch.name;
       tr.querySelector(".e-freq").value = (ch.freq / 1e6).toFixed(5);
       tr.querySelector(".e-bw").value = String(ch.bw);
+      const sqSel = tr.querySelector(".e-sq");
+      for (let off = SQUELCH_MIN; off <= SQUELCH_MAX; off++) {
+        sqSel.add(new Option(`Squelch ${squelchLabel(off)}`, String(off)));
+      }
+      sqSel.value = String(ch.squelch ?? 0);
       tr.querySelector(".e-save").onclick = () => {
         const hz = mhzToHz(tr.querySelector(".e-freq").value);
         if (hz === null) return toast("Enter the frequency in MHz");
         send({ type: "channel.update", id: ch.id, changes: {
-          name: tr.querySelector(".e-name").value, freq: hz, bw: Number(tr.querySelector(".e-bw").value) } });
+          name: tr.querySelector(".e-name").value, freq: hz, bw: Number(tr.querySelector(".e-bw").value),
+          squelch: Number(sqSel.value) } });
         editing = null;
       };
       tr.querySelector(".e-cancel").onclick = () => { editing = null; renderChannels(); };

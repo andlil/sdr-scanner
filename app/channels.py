@@ -16,6 +16,8 @@ DEFAULT_CHANNELS = sorted(
 )
 
 BANDWIDTHS = (12_500, 25_000)
+# Per-channel squelch fine-tuning, dB relative to the automatic level.
+SQUELCH_MIN, SQUELCH_MAX = -4, 12
 
 
 class ChannelError(ValueError):
@@ -44,6 +46,14 @@ def _clean(data, partial=False):
         out["bw"] = bw
     if "enabled" in data or not partial:
         out["enabled"] = bool(data.get("enabled", True))
+    if "squelch" in data or not partial:
+        try:
+            sq = int(round(float(data.get("squelch", 0))))
+        except (TypeError, ValueError):
+            raise ChannelError("squelch must be a number of dB") from None
+        if not SQUELCH_MIN <= sq <= SQUELCH_MAX:
+            raise ChannelError(f"squelch must be between {SQUELCH_MIN} and +{SQUELCH_MAX} dB")
+        out["squelch"] = sq
     return out
 
 

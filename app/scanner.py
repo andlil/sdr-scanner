@@ -105,7 +105,8 @@ class Scanner:
     def snapshot(self):
         active = self.active
         sq = self.squelch.get(active["id"]) if active else None
-        levels = {cid: {"snr": round(s.snr_db, 1), "open_db": round(s.open_db, 1), "open": s.is_open}
+        levels = {cid: {"snr": round(s.snr_db, 1), "open_db": round(s.open_db, 1), "open": s.is_open,
+                        "offset": s.offset_db}
                   for cid, s in list(self.squelch.items())}
         src = self._source
         return {
@@ -236,11 +237,16 @@ class Scanner:
                 self.squelch[c["id"]] = old[c["id"]]
             else:
                 self.squelch[c["id"]] = AutoSquelch()
+            self.squelch[c["id"]].offset_db = c.get("squelch", 0)
             self._sq_freq[c["id"]] = c["freq"]
         if self.active is not None:
             fresh = next((c for c in channels if c["id"] == self.active["id"]), None)
+            retune = fresh is not None and (fresh["freq"], fresh["bw"]) != (self.active["freq"], self.active["bw"])
             self.active = fresh
-            if fresh is not None and src is not None:
+            # Only reset the audio path if the channel itself moved: renaming
+            # it or adjusting its squelch while listening shouldn't click.
+            # (A changed window centre is picked up by _listen_block.)
+            if retune and src is not None:
                 self._tune_for(fresh)
         if self.active is None and self.state == "paused":
             self.state = "scanning"
