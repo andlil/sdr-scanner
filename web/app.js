@@ -319,13 +319,14 @@ function renderChannels() {
     tr.dataset.id = ch.id;
     if (!ch.enabled) tr.classList.add("disabled");
     if (editing === ch.id) {
+      // One cell across the row, so it also works when columns are hidden on phones.
       tr.innerHTML = `
-        <td></td>
-        <td><input class="e-name" maxlength="40"></td>
-        <td><input class="e-freq" inputmode="decimal"></td>
-        <td><select class="e-bw"><option value="12500">12.5k</option><option value="25000">25k</option></select></td>
-        <td></td>
-        <td class="actions"><button class="small e-save">Save</button><button class="small e-cancel">Cancel</button></td>`;
+        <td colspan="6"><div class="editform">
+          <input class="e-name" maxlength="40" placeholder="Channel name" aria-label="Channel name">
+          <input class="e-freq" inputmode="decimal" placeholder="MHz" aria-label="Frequency in MHz">
+          <select class="e-bw" aria-label="Bandwidth"><option value="12500">12.5 kHz</option><option value="25000">25 kHz</option></select>
+          <span class="editbuttons"><button class="e-save">Save</button><button class="e-cancel">Cancel</button></span>
+        </div></td>`;
       tr.querySelector(".e-name").value = ch.name;
       tr.querySelector(".e-freq").value = (ch.freq / 1e6).toFixed(5);
       tr.querySelector(".e-bw").value = String(ch.bw);
@@ -341,8 +342,8 @@ function renderChannels() {
       tr.innerHTML = `
         <td><input type="checkbox" title="Include in scan"></td>
         <td class="name"></td>
-        <td class="freq"></td>
-        <td>${ch.bw === 25000 ? "25k" : "12.5k"}</td>
+        <td class="freq col-freq"></td>
+        <td class="col-bw">${ch.bw === 25000 ? "25k" : "12.5k"}</td>
         <td class="level"></td>
         <td class="actions">
           <button class="small listen" title="Hold on this channel">Listen</button>

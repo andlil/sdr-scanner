@@ -83,7 +83,30 @@ td input[type=checkbox] { width: auto; accent-color: var(--accent); }
 .note { font-size: 12px; color: var(--warn); }
 
 .addform { display: grid; grid-template-columns: 2fr 2fr 1fr auto; gap: 8px; margin-top: 10px; }
-@media (max-width: 600px) { .addform { grid-template-columns: 1fr 1fr; } }
+.editform { display: grid; grid-template-columns: 2fr 2fr 1fr auto; gap: 8px; }
+.editbuttons { display: flex; gap: 6px; }
+
+/* Phones: show only On, Name, Signal and the buttons. */
+@media (max-width: 600px) {
+  main { padding: 12px; }
+  .col-freq, .col-bw { display: none; }
+  table { min-width: 0; }
+  th, td { padding: 8px 5px; }
+  td.name { word-break: break-word; }
+  td.level { width: 1%; }
+  .lvl { width: 56px; }
+  td.level .note { font-size: 11px; }
+  td.actions button { padding: 7px 8px; min-height: 36px; }
+  td.actions button + button { margin-left: 2px; }
+  .transport { width: 100%; }
+  .transport button { flex: 1; min-height: 44px; }
+  .volume { max-width: none; }
+  .addform, .editform { grid-template-columns: 1fr 1fr; }
+  .addform button, .editbuttons { grid-column: 1 / -1; }
+  .editbuttons button { flex: 1; min-height: 40px; }
+  /* 16 px keeps iPhones from zooming in when a field is tapped. */
+  input, select { font-size: 16px; }
+}
 
 .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.7); display: grid; place-items: center; }
 .overlay button { font-size: 18px; padding: 14px 22px; background: var(--accent); color: #001522; border: 0; }
