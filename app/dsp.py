@@ -7,8 +7,10 @@ being listened to (overlap-save filtering + decimation done in the frequency
 domain, which is far cheaper on a Pi than time-domain FIR filters).
 """
 
+import collections
 import functools
 import math
+import time
 
 import numpy as np
 import scipy.fft as sfft
@@ -161,16 +163,27 @@ class AutoSquelch:
     bins), so it adapts instantly to gain changes. On top of that each channel
     learns its own idle baseline, so a permanent spur or interferer on a
     channel raises that channel's threshold instead of holding the scanner.
+
+    The baseline is the *minimum* SNR seen over the last few minutes
+    ("minimum statistics"). A busy channel still drops back to pure noise
+    between transmissions, if only briefly, so frequent weak signals cannot
+    push its threshold up. Only something that never goes away for the whole
+    window, such as a spur, raises it.
     """
 
     OPEN_MIN_DB = 6.0       # never open below this SNR
     MARGIN_DB = 6.0         # open this far above the learned idle baseline
     HYSTERESIS_DB = 3.0     # close this far below the open threshold
+    WINDOW_S = 300.0        # how far back the minimum looks
+    BUCKET_S = 15.0         # minimum kept per bucket, so memory stays small
 
     def __init__(self):
         self.baseline_db = 0.0
         self.snr_db = -99.0
         self.is_open = False
+        self._bucket_start = None
+        self._bucket_min = math.inf
+        self._buckets = collections.deque(maxlen=int(self.WINDOW_S / self.BUCKET_S))
 
     @property
     def open_db(self):
@@ -180,18 +193,24 @@ class AutoSquelch:
     def close_db(self):
         return self.open_db - self.HYSTERESIS_DB
 
-    def update(self, power, noise, dt):
-        """Feed a power measurement covering `dt` seconds; returns is_open."""
+    def update(self, power, noise, now=None):
+        """Feed a power measurement; returns is_open.
+
+        `now` (seconds, monotonic) defaults to the wall clock; the window is
+        real time, however often the scanner gets round to this channel.
+        """
+        now = time.monotonic() if now is None else now
         snr = 10 * math.log10(max(power, 1e-20) / max(noise, 1e-20))
         self.snr_db = snr
-        # Baseline: follows drops quickly, rises slowly (about a minute when
-        # closed, several minutes when a carrier sits on the channel).
-        if snr < self.baseline_db:
-            self.baseline_db += min(1.0, dt / 0.5) * (snr - self.baseline_db)
-        else:
-            tau = 300.0 if self.is_open else 60.0
-            self.baseline_db += min(1.0, dt / tau) * (snr - self.baseline_db)
-        self.baseline_db = max(-3.0, min(self.baseline_db, 30.0))
+        if self._bucket_start is None:
+            self._bucket_start = now
+        self._bucket_min = min(self._bucket_min, snr)
+        if now - self._bucket_start >= self.BUCKET_S:
+            self._buckets.append(self._bucket_min)
+            self._bucket_start = now
+            self._bucket_min = math.inf
+        lowest = min(min(self._buckets, default=math.inf), self._bucket_min)
+        self.baseline_db = max(-3.0, min(lowest, 30.0))
         if self.is_open:
             self.is_open = snr >= self.close_db
         else:

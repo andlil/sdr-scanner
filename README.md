@@ -125,10 +125,13 @@ SDR ──SoapySDR──▶ scanner thread ──audio──▶ WebRTC Opus trac
   overlap-save filtered and decimated baseband of the channel being heard.
 - **Auto squelch.** A channel's SNR is its power compared with the median
   of the surrounding 200 kHz, so it adapts at once to gain and noise
-  changes. Each channel also learns its own idle baseline, so a permanent
-  spur or interferer raises that channel's threshold instead of holding the
-  scanner. The squelch opens at `max(6 dB, baseline + 6 dB)`, with 3 dB of
-  hysteresis.
+  changes. Each channel also learns its idle baseline: the lowest SNR seen
+  in the last 5 minutes. A busy channel still drops back to pure noise
+  between transmissions, so frequent weak signals cannot push its threshold
+  up. A spur or interferer that never goes away does raise it, so it doesn't
+  hold the scanner. The squelch opens at `max(6 dB, baseline + 6 dB)`, with
+  3 dB of hysteresis, and the scanner re-measures once before stopping on a
+  channel.
 - **Demodulation.** FM discriminator, 300–3400 Hz voice band-pass (removes
   CTCSS tones), 300 Hz de-emphasis, and a slow AGC so all channels play at
   a similar loudness. Audio is 16 kHz and is Opus-encoded by aiortc.

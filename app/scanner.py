@@ -297,14 +297,13 @@ class Scanner:
             self._tune(w.center)
         chz = self._chz
         X = chz.spectra(self._source.read(self.dwell_blocks * chz.step))
-        dt = self.dwell_blocks * chz.step / chz.fs
         best, best_snr = None, -1e9
         for ch in w.channels:
             off = ch["freq"] - w.center
             power = chz.channel_power(X, off, ch["bw"])
             noise = chz.local_noise(X, off)
             sq = self.squelch[ch["id"]]
-            if sq.update(power, noise, dt) and sq.snr_db > best_snr:
+            if sq.update(power, noise) and sq.snr_db > best_snr:
                 best, best_snr = ch, sq.snr_db
         if best is not None and not self._confirm(w, best):
             log.debug("unconfirmed opening on %s (%.1f dB)", best["name"], best_snr)
@@ -327,8 +326,7 @@ class Scanner:
         X = chz.spectra(self._source.read(self.dwell_blocks * chz.step))
         off = ch["freq"] - w.center
         sq = self.squelch[ch["id"]]
-        return sq.update(chz.channel_power(X, off, ch["bw"]), chz.local_noise(X, off),
-                         self.dwell_blocks * chz.step / chz.fs)
+        return sq.update(chz.channel_power(X, off, ch["bw"]), chz.local_noise(X, off))
 
     # ---- listening -------------------------------------------------------------
 
@@ -351,8 +349,7 @@ class Scanner:
             self._noise = chz.local_noise(X, off)
         sq = self.squelch[ch["id"]]
         was_open = sq.is_open
-        is_open = sq.update(chz.channel_power(X, off, ch["bw"]), self._noise,
-                            LISTEN_BLOCKS * chz.step / chz.fs)
+        is_open = sq.update(chz.channel_power(X, off, ch["bw"]), self._noise)
         audio = self._demod.process(chz.extract(X, off, ch["bw"]))
         if not is_open:
             audio = np.zeros_like(audio)
