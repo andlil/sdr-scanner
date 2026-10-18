@@ -11,14 +11,34 @@ any channel with traffic, and streams the audio to the browser over WebRTC.
 
 ## Run it
 
-Requirements: Docker with the compose plugin, and the SDR plugged in.
+Requirements: Docker with the compose plugin, a 64-bit OS (arm64), and the
+SDR plugged in.
+
+Use the pre-built image. GitHub Actions builds it on every push
+(see `.github/workflows/docker.yml`):
+
+```sh
+docker compose pull
+docker compose up -d
+```
+
+To update later, run the same two commands again.
+
+Alternatively, build the image on the Pi itself:
 
 ```sh
 docker compose up -d --build
 ```
 
-Open `http://<pi-address>:8080` in a browser. The first build takes a while
-on a Pi 3, because the Airspy HF+ driver is compiled from source.
+This takes a while on a Pi 3, because the Airspy HF+ driver is compiled
+from source. If the Pi runs out of memory, build stage by stage:
+`docker build --target airspyhf .`, then `docker build --target pydeps .`,
+then `docker compose up -d --build`.
+
+Open `http://<pi-address>:8080` in a browser.
+
+Published image tags at `ghcr.io/andlil/sdr-scanner`: `latest` (main
+branch), `<branch-name>`, `sha-<commit>`, and `<version>` for `v*` git tags.
 
 Channels are saved in `./data/channels.json`. On first start the list holds
 marine VHF channels 9, 11, 16, 71 and 73 and the eight PMR446 channels.

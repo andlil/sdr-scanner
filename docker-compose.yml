@@ -1,7 +1,9 @@
 services:
   scanner:
+    # Pre-built image from GitHub Actions; "docker compose pull" fetches it.
+    # "docker compose up -d --build" builds locally from this directory instead.
+    image: ghcr.io/andlil/sdr-scanner:latest
     build: .
-    image: sdr-scanner
     container_name: sdr-scanner
     restart: unless-stopped
     # Host networking: WebRTC needs the browser to reach the Pi's real IP
