@@ -82,3 +82,31 @@ class AudioBroadcaster:
     def push(self, audio):
         for t in list(self.tracks):
             t.feed(audio)
+
+
+# ---- ICE candidates -------------------------------------------------------------
+#
+# WebRTC is used on the LAN; browsers that can't reach the Pi directly get the
+# audio over the WebSocket instead (see server.py), so no ports are opened.
+
+SKIP_INTERFACES = ("docker", "br-", "veth", "virbr", "lo")
+
+
+def limit_ice_interfaces():
+    """Don't offer Docker/virtual interfaces as candidates (nobody can reach them)."""
+    import aioice.ice
+    import ifaddr
+
+    def host_addresses(use_ipv4, use_ipv6):
+        out = []
+        for adapter in ifaddr.get_adapters():
+            if adapter.nice_name.startswith(SKIP_INTERFACES):
+                continue
+            for ip in adapter.ips:
+                if isinstance(ip.ip, str) and use_ipv4:
+                    out.append(ip.ip)
+                elif not isinstance(ip.ip, str) and use_ipv6 and ip.ip[2] == 0:
+                    out.append(ip.ip[0])
+        return out
+
+    aioice.ice.get_host_addresses = host_addresses

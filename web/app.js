@@ -1,75 +1,50 @@
 "use strict";
-// Browser side: one WebRTC connection carries the audio (Opus track) and a
-// "control" data channel with JSON status/commands.
+// Browser side. One WebSocket (api/ws) carries status and commands as JSON and
+// always works through a reverse proxy. Audio comes over WebRTC (Opus) when
+// the browser can reach the scanner directly; if no WebRTC path forms within
+// a few seconds (e.g. a phone on mobile data behind a proxy), audio is sent
+// over the WebSocket instead as IMA ADPCM and played with Web Audio.
 
 const $ = (id) => document.getElementById(id);
 const audio = $("audio");
 const METER_MAX_DB = 40;
+const WEBRTC_WAIT_MS = 5000;     // give up on WebRTC after this long
+const AUDIO_RATE = 16000;
 
+let ws = null;
 let pc = null;
-let dc = null;
+let transport = null;            // "webrtc" | "ws" | null while deciding
 let channels = [];
 let status = {};
-let editing = null;          // id of the channel row being edited
+let editing = null;              // id of the channel row being edited
 let reconnectDelay = 1000;
 
 // ---- connection --------------------------------------------------------------
 
-async function connect() {
+function connect() {
   setConn("Connecting…");
-  pc = new RTCPeerConnection({ iceServers: [] });
-  pc.addTransceiver("audio", { direction: "recvonly" });
-  pc.ontrack = (e) => {
-    audio.srcObject = e.streams[0] || new MediaStream([e.track]);
-    playAudio();
+  const url = new URL("api/ws", location.href);
+  url.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  ws = new WebSocket(url);
+  ws.binaryType = "arraybuffer";
+  ws.onopen = () => { reconnectDelay = 1000; startAudio(); };
+  ws.onmessage = (e) => {
+    if (typeof e.data === "string") onMessage(JSON.parse(e.data));
+    else playAdpcm(e.data);
   };
-  dc = pc.createDataChannel("control");
-  dc.onopen = () => { setConn("Connected", "ok"); reconnectDelay = 1000; };
-  dc.onmessage = (e) => onMessage(JSON.parse(e.data));
-  dc.onclose = () => scheduleReconnect();
-  pc.onconnectionstatechange = () => {
-    if (["failed", "disconnected", "closed"].includes(pc.connectionState)) scheduleReconnect();
-  };
-
-  try {
-    await pc.setLocalDescription(await pc.createOffer());
-    await iceGatheringDone(pc);
-    const res = await fetch("/api/offer", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sdp: pc.localDescription.sdp, type: pc.localDescription.type }),
-    });
-    if (!res.ok) throw new Error(`server answered ${res.status}`);
-    await pc.setRemoteDescription(await res.json());
-  } catch (err) {
-    console.error(err);
-    scheduleReconnect();
-  }
-}
-
-function iceGatheringDone(pc) {
-  if (pc.iceGatheringState === "complete") return Promise.resolve();
-  return new Promise((resolve) => {
-    const done = () => { if (pc.iceGatheringState === "complete") resolve(); };
-    pc.addEventListener("icegatheringstatechange", done);
-    setTimeout(resolve, 2000);   // LAN host candidates arrive quickly
-  });
+  ws.onclose = () => { stopAudio(); scheduleReconnect(); };
 }
 
 let reconnectTimer = null;
 function scheduleReconnect() {
   if (reconnectTimer) return;
   setConn("Disconnected – retrying", "bad");
-  try { pc && pc.close(); } catch (_) {}
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = null;
-    connect();
-  }, reconnectDelay);
+  reconnectTimer = setTimeout(() => { reconnectTimer = null; connect(); }, reconnectDelay);
   reconnectDelay = Math.min(reconnectDelay * 2, 15000);
 }
 
 function send(msg) {
-  if (dc && dc.readyState === "open") dc.send(JSON.stringify(msg));
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
   else toast("Not connected to the scanner");
 }
 
@@ -79,11 +54,160 @@ function setConn(text, cls) {
   el.className = "pill" + (cls ? " " + cls : "");
 }
 
-// ---- audio & volume ----------------------------------------------------------
+function showTransport() {
+  const how = { webrtc: "WebRTC", ws: "WebSocket" }[transport];
+  setConn(how ? `Connected · ${how}` : "Connected · starting audio…", "ok");
+}
+
+// ---- audio path: WebRTC first, WebSocket as fallback ---------------------------
+
+async function startAudio() {
+  stopAudio();
+  transport = null;
+  showTransport();
+  const myPc = pc = new RTCPeerConnection({ iceServers: [] });
+  myPc.addTransceiver("audio", { direction: "recvonly" });
+  myPc.ontrack = (e) => {
+    audio.srcObject = e.streams[0] || new MediaStream([e.track]);
+    playAudio();
+  };
+  myPc.onconnectionstatechange = () => {
+    if (myPc !== pc) return;
+    if (myPc.connectionState === "connected") {
+      transport = "webrtc";
+      showTransport();
+    } else if (["failed", "disconnected", "closed"].includes(myPc.connectionState)) {
+      useWebSocketAudio();
+    }
+  };
+  setTimeout(() => { if (myPc === pc && transport === null) useWebSocketAudio(); }, WEBRTC_WAIT_MS);
+  try {
+    await myPc.setLocalDescription(await myPc.createOffer());
+    await iceGatheringDone(myPc);
+    const res = await fetch("api/offer", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sdp: myPc.localDescription.sdp, type: myPc.localDescription.type }),
+    });
+    if (!res.ok) throw new Error(`server answered ${res.status}`);
+    await myPc.setRemoteDescription(await res.json());
+  } catch (err) {
+    console.warn("WebRTC unavailable, using WebSocket audio", err);
+    if (myPc === pc) useWebSocketAudio();
+  }
+}
+
+function iceGatheringDone(pc) {
+  if (pc.iceGatheringState === "complete") return Promise.resolve();
+  return new Promise((resolve) => {
+    pc.addEventListener("icegatheringstatechange", () => {
+      if (pc.iceGatheringState === "complete") resolve();
+    });
+    setTimeout(resolve, 2000);   // host candidates arrive quickly
+  });
+}
+
+function useWebSocketAudio() {
+  if (transport === "ws") return;
+  closePc();
+  transport = "ws";
+  ensureAudioGraph();
+  send({ type: "audio", transport: "ws" });
+  showTransport();
+  playAudio();
+}
+
+function closePc() {
+  const old = pc;
+  pc = null;
+  try { old && old.close(); } catch (_) {}
+}
+
+function stopAudio() {
+  closePc();
+  transport = null;
+  nextTime = 0;
+}
+
+// ---- WebSocket audio: IMA ADPCM decode + scheduled playback ---------------------
+// Played through a MediaStream into the <audio> element rather than straight
+// to the speakers: one volume control for both paths, and on iPhones it still
+// plays with the silent switch on.
+
+let audioCtx = null;
+let streamDest = null;
+let nextTime = 0;
+
+function ensureAudioGraph() {
+  if (audioCtx) {
+    audio.srcObject = streamDest.stream;
+    return;
+  }
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  streamDest = audioCtx.createMediaStreamDestination();
+  audio.srcObject = streamDest.stream;
+}
+
+const ADPCM_INDEX = [-1, -1, -1, -1, 2, 4, 6, 8, -1, -1, -1, -1, 2, 4, 6, 8];
+const ADPCM_STEP = [
+  7, 8, 9, 10, 11, 12, 13, 14, 16, 17, 19, 21, 23, 25, 28, 31, 34, 37, 41, 45,
+  50, 55, 60, 66, 73, 80, 88, 97, 107, 118, 130, 143, 157, 173, 190, 209, 230,
+  253, 279, 307, 337, 371, 408, 449, 494, 544, 598, 658, 724, 796, 876, 963,
+  1060, 1166, 1282, 1411, 1552, 1707, 1878, 2066, 2272, 2499, 2749, 3024, 3327,
+  3660, 4026, 4428, 4871, 5358, 5894, 6484, 7132, 7845, 8630, 9493, 10442,
+  11487, 12635, 13899, 15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794,
+  32767];
+
+// Chunk: int16 LE predictor, uint8 step index, 1 spare byte, then two
+// samples per byte, low nibble first (see app/adpcm.py).
+function decodeAdpcm(buf) {
+  const bytes = new Uint8Array(buf);
+  const view = new DataView(buf);
+  let pred = view.getInt16(0, true);
+  let idx = bytes[2];
+  const out = new Float32Array((bytes.length - 4) * 2);
+  let o = 0;
+  for (let i = 4; i < bytes.length; i++) {
+    for (const code of [bytes[i] & 0x0f, bytes[i] >> 4]) {
+      const step = ADPCM_STEP[idx];
+      let diff = step >> 3;
+      if (code & 4) diff += step;
+      if (code & 2) diff += step >> 1;
+      if (code & 1) diff += step >> 2;
+      pred += code & 8 ? -diff : diff;
+      if (pred > 32767) pred = 32767; else if (pred < -32768) pred = -32768;
+      idx += ADPCM_INDEX[code];
+      if (idx < 0) idx = 0; else if (idx > 88) idx = 88;
+      out[o++] = pred / 32768;
+    }
+  }
+  return out;
+}
+
+function playAdpcm(buf) {
+  if (transport !== "ws" || !audioCtx) return;
+  const samples = decodeAdpcm(buf);
+  const now = audioCtx.currentTime;
+  if (nextTime < now + 0.05) nextTime = now + 0.25;   // (re)start with a small buffer
+  if (nextTime > now + 1.0) return;                   // too far behind: skip to catch up
+  const b = audioCtx.createBuffer(1, samples.length, AUDIO_RATE);
+  b.getChannelData(0).set(samples);
+  const src = audioCtx.createBufferSource();
+  src.buffer = b;
+  src.connect(streamDest);
+  src.start(nextTime);
+  nextTime += samples.length / AUDIO_RATE;
+}
+
+// ---- playback permission & volume ------------------------------------------------
 
 function playAudio() {
-  audio.play().then(() => { $("unmute").hidden = true; })
-    .catch(() => { $("unmute").hidden = false; });   // browser wants a click first
+  const waits = [];
+  if (audioCtx && audioCtx.state !== "running") waits.push(audioCtx.resume());
+  if (audio.srcObject) waits.push(audio.play());
+  Promise.all(waits)
+    .then(() => { $("unmute").hidden = !(audioCtx && audioCtx.state !== "running"); })
+    .catch(() => { $("unmute").hidden = false; });   // browser wants a tap/click first
 }
 $("unmute").addEventListener("click", playAudio);
 

@@ -2,12 +2,14 @@
 
 A radio scanner you listen to in the browser. An RTL-SDR or Airspy HF+ on a
 Raspberry Pi steps through your list of narrowband FM channels, stops on
-any channel with traffic, and streams the audio to the browser over WebRTC.
+any channel with traffic, and streams the audio to the browser.
 
 - Name your channels and see which one is playing.
 - Automatic squelch per channel: no level to set.
 - Scan, pause (hold) and stop from the browser; volume per listener.
-- Audio (Opus) and channel information both travel over one WebRTC connection.
+- Audio over WebRTC (Opus) when the browser can reach the Pi directly,
+  otherwise over a WebSocket. It works behind a reverse proxy such as
+  Traefik, from anywhere, without opening any ports.
 
 ## Run it
 
@@ -69,7 +71,35 @@ Set these under `environment:` in `docker-compose.yml`:
 | `HANG_TIME`   | `2.0`   | Seconds the scanner stays on a channel after the signal ends, so replies are heard. |
 | `AUTOSTART`   | `1`     | Start scanning when the container starts. |
 | `PORT`        | `8080`  | HTTP port. |
-| `STUN_SERVER` | unset   | e.g. `stun:stun.l.google.com:19302`. Only needed when listening from outside the LAN. |
+| `STUN_SERVER` | unset   | Optional STUN server for WebRTC, e.g. `stun:stun.l.google.com:19302`. |
+
+Settings that apply to one machine only, such as `SDR_DEVICE`, are best kept in `docker-compose.override.yml` next to
+`docker-compose.yml`. Docker Compose merges it in automatically, and git
+ignores it:
+
+```yaml
+services:
+  scanner:
+    environment:
+      SDR_DEVICE: "driver=airspyhf,serial=dd52978026ba4686"
+```
+
+### Behind a reverse proxy (Traefik etc.)
+
+Proxy plain HTTP to port 8080. WebSockets must be passed through, which
+Traefik does by default. The page uses relative URLs, so it works on its own
+(sub)domain and under a path prefix (with the prefix stripped).
+
+WebRTC audio travels directly between browser and Pi over UDP, never through
+the proxy. On the LAN that just works. A browser that can't reach the Pi
+directly, such as a phone on mobile data, waits 5 seconds and then receives
+the audio over the WebSocket instead (IMA ADPCM, about 65 kbit/s). The status
+badge shows which path is in use: "Connected · WebRTC" or
+"Connected · WebSocket".
+
+Anyone who can open the page can listen and change channels. Add
+authentication in the proxy (e.g. Traefik basic auth) if it is reachable
+from the internet.
 
 ### Choosing a receiver
 
@@ -110,10 +140,10 @@ Channels outside the receiver's range are marked in the UI and skipped.
 ## How it works
 
 ```
-SDR ──SoapySDR──▶ scanner thread ──audio──▶ WebRTC Opus track ──▶ browser
-                    │      ▲
-                    │      └── commands ◀── data channel "control" ◀── browser
-                    └── status ──────────▶ data channel "control" ──▶ browser
+SDR ──SoapySDR──▶ scanner thread ──audio──┬─▶ WebRTC Opus track ─────────▶ browser
+                    │      ▲               └─▶ WebSocket, ADPCM (fallback) ─▶ browser
+                    │      └── commands ◀── WebSocket /api/ws (JSON) ◀───── browser
+                    └── status ──────────▶ WebSocket /api/ws (JSON) ──────▶ browser
 ```
 
 - **Tuning windows.** Channels close enough together to fit in one SDR
