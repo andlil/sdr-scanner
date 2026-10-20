@@ -477,10 +477,7 @@ function buildSpark(cell, row, hour, ymax, name) {
     ? `${name}: no activity data for the last hour`
     : `${name}: busy ${fmtPct(hour)} of the last hour` +
       (peak > 0 ? `, peak ${fmtPct(peak)} at ${range(peakAt)}` : ""));
-  const label = document.createElement("span");
-  label.className = "act-label";
-  label.textContent = hour === null ? "no data" : `busy ${fmtPct(hour)}`;
-  cell.append(svg, label);
+  cell.append(svg);
 
   const show = (e) => {
     const r = svg.getBoundingClientRect();
@@ -494,7 +491,7 @@ function buildSpark(cell, row, hour, ymax, name) {
   svg.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") hideSparkTip(svg); });
   svg.addEventListener("focus", () => {
     const r = svg.getBoundingClientRect();
-    showSparkTip(label.textContent, "last hour", r.left + r.width / 2, r.top);
+    showSparkTip(hour === null ? "no data" : `${fmtPct(hour)} busy`, "last hour", r.left + r.width / 2, r.top);
   });
   svg.addEventListener("blur", () => hideSparkTip(svg));
 }

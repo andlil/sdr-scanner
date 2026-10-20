@@ -93,14 +93,13 @@ td input[type=checkbox] { width: auto; accent-color: var(--accent); }
 
 /* Activity sparkline under each channel name (colours validated against the
    panel: same hue, muted past / accent current, both >= 4.5:1). */
-.act { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px; margin-top: 4px; }
+.act { margin-top: 4px; }
 .spark { display: block; overflow: visible; cursor: crosshair; outline-offset: 3px; }
 .spark-axis { stroke: var(--line); stroke-width: 1; }
 .spark-bar { fill: #5f88a8; }
 .spark-bar.now { fill: var(--accent); }
 .spark-bar.hover { fill: #8fb3cf; }
 .spark-bar.now.hover { fill: #8dd3ff; }
-.act-label { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 tr.current td .nm { font-weight: 700; }
 .sparktip {
   position: fixed; z-index: 10; pointer-events: none;

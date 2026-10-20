@@ -164,7 +164,7 @@ SDR ──SoapySDR──▶ scanner thread ──audio──┬─▶ WebRTC Opu
   channel.
 - **Activity.** Under each channel name a small bar chart shows how busy
   the channel was over the last hour, in 5-minute steps: the share of time
-  its squelch was open, with the hour's total beside it. Hover or tap a bar
+  its squelch was open. Hover or tap a bar
   for its value. Time the scanner spent away from a channel (listening
   elsewhere) counts as not observed rather than quiet. Kept in
   `data/activity.json`, so it survives restarts.
