@@ -261,6 +261,7 @@ const fmtMHz = (hz) => (hz / 1e6).toFixed(5) + " MHz";
 function onMessage(msg) {
   if (msg.type === "status") { status = msg; renderStatus(); renderLevels(); }
   else if (msg.type === "channels") { channels = msg.channels; renderChannels(); }
+  else if (msg.type === "activity") { activity = msg; renderActivity(); }
   else if (msg.type === "error") toast(msg.message);
 }
 
@@ -282,7 +283,9 @@ function renderStatus() {
   $("meterbar").style.width = (lvl ? pct(lvl.snr) : 0) + "%";
   $("metermark").style.left = (lvl ? pct(lvl.open_db) : 0) + "%";
   const activeCh = s.active && channels.find((c) => c.id === s.active.id);
-  $("sqadj").hidden = !activeCh;
+  // Hide by visibility, not display, so the display keeps the same height
+  // whether scanning or listening.
+  $("sqadj").classList.toggle("inactive", !activeCh);
   if (activeCh) {
     const off = activeCh.squelch ?? 0;
     $("sqval").textContent = squelchLabel(off);
@@ -370,7 +373,7 @@ function renderChannels() {
     } else {
       tr.innerHTML = `
         <td><input type="checkbox" title="Include in scan"></td>
-        <td class="name"></td>
+        <td class="name"><span class="nm"></span><div class="act"></div></td>
         <td class="freq col-freq"></td>
         <td class="col-bw">${ch.bw === 25000 ? "25k" : "12.5k"}</td>
         <td class="level"></td>
@@ -379,7 +382,7 @@ function renderChannels() {
           <button class="small edit">Edit</button>
           <button class="small danger delete">Delete</button>
         </td>`;
-      tr.querySelector(".name").textContent = ch.name;
+      tr.querySelector(".nm").textContent = ch.name;
       tr.querySelector(".freq").textContent = fmtMHz(ch.freq);
       const cb = tr.querySelector("input[type=checkbox]");
       cb.checked = ch.enabled;
@@ -400,6 +403,122 @@ function renderChannels() {
   }
   renderStatus();
   renderLevels();
+  renderActivity();
+}
+
+// ---- activity sparklines ---------------------------------------------------------
+// Per channel: share of time the squelch was open, per 5-minute bucket over
+// the last hour (server: app/activity.py). Muted bars for past buckets, the
+// accent for the current, still-running one. One shared scale for all rows so
+// channels can be compared; null = the channel wasn't observed in that bucket.
+
+let activity = null;
+const SPARK_PITCH = 8, SPARK_BAR = 6, SPARK_H = 18;     // 2px gap between bars
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function niceMax(v) {
+  for (const m of [0.1, 0.25, 0.5, 1]) if (v <= m) return m;
+  return 1;
+}
+const fmtPct = (v) => `${Math.round(v * 100)}%`;
+const fmtClock = (sec) => new Date(sec * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+function renderActivity() {
+  if (!activity) return;
+  const values = Object.values(activity.channels).flat().filter((v) => v !== null);
+  const ymax = niceMax(Math.max(0.1, ...values));
+  for (const tr of document.querySelectorAll("#chlist tr[data-id]")) {
+    const cell = tr.querySelector(".act");
+    if (!cell) continue;            // row being edited
+    const id = tr.dataset.id;
+    const name = tr.querySelector(".nm").textContent;
+    buildSpark(cell, activity.channels[id] || [], activity.hour[id] ?? null, ymax, name);
+  }
+}
+
+function barPath(x, h, base) {
+  const r = Math.min(2, h, SPARK_BAR / 2);           // rounded data end, square at the baseline
+  const top = base - h;
+  return `M${x},${base}V${top + r}Q${x},${top} ${x + r},${top}H${x + SPARK_BAR - r}` +
+         `Q${x + SPARK_BAR},${top} ${x + SPARK_BAR},${top + r}V${base}Z`;
+}
+
+function buildSpark(cell, row, hour, ymax, name) {
+  cell.textContent = "";
+  const n = row.length;
+  const w = n * SPARK_PITCH - (SPARK_PITCH - SPARK_BAR);
+  const base = SPARK_H - 0.5;
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("width", w);
+  svg.setAttribute("height", SPARK_H);
+  svg.setAttribute("viewBox", `0 0 ${w} ${SPARK_H}`);
+  svg.setAttribute("class", "spark");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("tabindex", "0");
+  const axis = document.createElementNS(SVG_NS, "line");
+  axis.setAttribute("x1", 0); axis.setAttribute("x2", w);
+  axis.setAttribute("y1", base); axis.setAttribute("y2", base);
+  axis.setAttribute("class", "spark-axis");
+  svg.appendChild(axis);
+  let peak = -1, peakAt = 0;
+  row.forEach((v, i) => {
+    if (v === null || v <= 0) return;
+    if (v > peak) { peak = v; peakAt = i; }
+    const h = Math.max(2, (v / ymax) * (SPARK_H - 2));
+    const bar = document.createElementNS(SVG_NS, "path");
+    bar.setAttribute("d", barPath(i * SPARK_PITCH, h, base));
+    bar.setAttribute("class", i === n - 1 ? "spark-bar now" : "spark-bar");
+    bar.dataset.i = i;
+    svg.appendChild(bar);
+  });
+  const range = (i) => `${fmtClock(activity.start + i * activity.bucket_s)}–` +
+                       (i === n - 1 ? "now" : fmtClock(activity.start + (i + 1) * activity.bucket_s));
+  svg.setAttribute("aria-label", hour === null
+    ? `${name}: no activity data for the last hour`
+    : `${name}: busy ${fmtPct(hour)} of the last hour` +
+      (peak > 0 ? `, peak ${fmtPct(peak)} at ${range(peakAt)}` : ""));
+  const label = document.createElement("span");
+  label.className = "act-label";
+  label.textContent = hour === null ? "no data" : `busy ${fmtPct(hour)}`;
+  cell.append(svg, label);
+
+  const show = (e) => {
+    const r = svg.getBoundingClientRect();
+    const i = Math.max(0, Math.min(n - 1, Math.floor((e.clientX - r.left) / SPARK_PITCH)));
+    const v = row[i];
+    svg.querySelectorAll(".spark-bar").forEach((b) => b.classList.toggle("hover", Number(b.dataset.i) === i));
+    showSparkTip(v === null ? "not observed" : `${fmtPct(v)} busy`, range(i), e.clientX, r.top);
+  };
+  svg.addEventListener("pointermove", show);
+  svg.addEventListener("pointerdown", show);
+  svg.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") hideSparkTip(svg); });
+  svg.addEventListener("focus", () => {
+    const r = svg.getBoundingClientRect();
+    showSparkTip(label.textContent, "last hour", r.left + r.width / 2, r.top);
+  });
+  svg.addEventListener("blur", () => hideSparkTip(svg));
+}
+
+let sparkTip = null, sparkTipTimer = null;
+function showSparkTip(value, when, x, top) {
+  if (!sparkTip) {
+    sparkTip = document.createElement("div");
+    sparkTip.className = "sparktip";
+    sparkTip.append(document.createElement("strong"), document.createElement("span"));
+    document.body.appendChild(sparkTip);
+  }
+  sparkTip.children[0].textContent = value;
+  sparkTip.children[1].textContent = when;
+  sparkTip.hidden = false;
+  const tw = sparkTip.offsetWidth;
+  sparkTip.style.left = `${Math.max(8, Math.min(window.innerWidth - tw - 8, x - tw / 2))}px`;
+  sparkTip.style.top = `${Math.max(8, top - sparkTip.offsetHeight - 6)}px`;
+  clearTimeout(sparkTipTimer);
+  sparkTipTimer = setTimeout(() => hideSparkTip(), 3000);   // taps have no "leave"
+}
+function hideSparkTip(svg) {
+  if (sparkTip) sparkTip.hidden = true;
+  (svg || document).querySelectorAll(".spark-bar.hover").forEach((b) => b.classList.remove("hover"));
 }
 
 let toastTimer = null;

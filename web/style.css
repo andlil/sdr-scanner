@@ -51,6 +51,7 @@ h2 { font-size: 16px; margin: 0 0 8px; color: var(--muted); font-weight: 600; }
 .sqadj button:hover { border-color: var(--lcd-text); }
 .sqadj button:disabled { opacity: .35; cursor: default; }
 #sqval { min-width: 4.5em; text-align: center; }
+.sqadj.inactive { visibility: hidden; }
 .error { margin-top: 10px; color: var(--bad); font-family: system-ui, sans-serif; font-size: 14px; }
 
 .controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin: 14px 0 22px; }
@@ -74,7 +75,7 @@ th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--lin
 th { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
 tbody tr:last-child td { border-bottom: 0; }
 tr.current { background: color-mix(in srgb, var(--accent) 14%, transparent); }
-tr.current td:nth-child(2) { font-weight: 700; }
+
 tr.disabled td { opacity: .5; }
 td.freq { font-family: ui-monospace, Menlo, monospace; white-space: nowrap; }
 td.actions { white-space: nowrap; text-align: right; }
@@ -89,6 +90,25 @@ td input[type=checkbox] { width: auto; accent-color: var(--accent); }
 .lvl > i.open { background: var(--open); }
 .lvl > b { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--warn); }
 .note { font-size: 12px; color: var(--warn); }
+
+/* Activity sparkline under each channel name (colours validated against the
+   panel: same hue, muted past / accent current, both >= 4.5:1). */
+.act { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px; margin-top: 4px; }
+.spark { display: block; overflow: visible; cursor: crosshair; outline-offset: 3px; }
+.spark-axis { stroke: var(--line); stroke-width: 1; }
+.spark-bar { fill: #5f88a8; }
+.spark-bar.now { fill: var(--accent); }
+.spark-bar.hover { fill: #8fb3cf; }
+.spark-bar.now.hover { fill: #8dd3ff; }
+.act-label { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr.current td .nm { font-weight: 700; }
+.sparktip {
+  position: fixed; z-index: 10; pointer-events: none;
+  background: #0b0e11; border: 1px solid var(--line); border-radius: 6px;
+  padding: 5px 8px; font-size: 12px; line-height: 1.3; box-shadow: 0 4px 14px rgba(0,0,0,.5);
+}
+.sparktip strong { display: block; color: var(--text); font-size: 13px; }
+.sparktip span { color: var(--muted); }
 
 .addform { display: grid; grid-template-columns: 2fr 2fr 1fr auto; gap: 8px; margin-top: 10px; }
 .editform { display: grid; grid-template-columns: 2fr 2fr 1fr 1.3fr auto; gap: 8px; }

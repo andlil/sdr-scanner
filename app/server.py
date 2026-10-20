@@ -21,6 +21,7 @@ os.environ.setdefault("CRC32C_SW_MODE", "force")
 from aiohttp import web
 from aiortc import RTCConfiguration, RTCIceServer, RTCPeerConnection, RTCSessionDescription
 
+from .activity import ActivityLog
 from .adpcm import AdpcmEncoder
 from .channels import ChannelError, ChannelStore
 from .rtc import AudioBroadcaster, ScannerAudioTrack, limit_ice_interfaces
@@ -32,6 +33,7 @@ WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 
 CONNECT_TIMEOUT_S = 20
+ACTIVITY_INTERVAL_S = 15
 
 
 def _candidates(sdp):
@@ -95,6 +97,7 @@ class WsClient:
 class App:
     def __init__(self):
         self.store = ChannelStore(env("DATA_DIR", "/data"))
+        self.activity = ActivityLog(os.path.join(env("DATA_DIR", "/data"), "activity.json"))
         self.audio = AudioBroadcaster()
         self.peers = set()
         self.clients = set()        # open WebSockets (WsClient)
@@ -114,6 +117,7 @@ class App:
             on_audio=lambda a: self.loop.call_soon_threadsafe(self._on_audio, a),
             on_status=lambda s: self.loop.call_soon_threadsafe(self._on_status, s),
             hang_s=float(env("HANG_TIME", "2.0")),
+            activity=self.activity,
         )
 
     # ---- lifecycle -------------------------------------------------------------
@@ -124,8 +128,21 @@ class App:
         self.scanner.begin()
         if env("AUTOSTART", "1") == "1":
             self.scanner.command("start")
+        self._activity_task = asyncio.ensure_future(self._activity_loop())
+
+    async def _activity_loop(self):
+        """Send channel activity to browsers every 15 s; save it every 5 min."""
+        ticks = 0
+        while True:
+            await asyncio.sleep(ACTIVITY_INTERVAL_S)
+            ticks += 1
+            if self.clients:
+                self._broadcast(self._activity_msg())
+            if ticks % (300 // ACTIVITY_INTERVAL_S) == 0:
+                await asyncio.to_thread(self.activity.save)
 
     async def shutdown(self, _app):
+        self._activity_task.cancel()
         await asyncio.gather(*(pc.close() for pc in list(self.peers)), return_exceptions=True)
         await asyncio.gather(*(c.ws.close() for c in list(self.clients)), return_exceptions=True)
         await asyncio.to_thread(self.scanner.shutdown)
@@ -148,6 +165,9 @@ class App:
         data = json.dumps(msg)
         for c in list(self.clients):
             c.send_text(data)
+
+    def _activity_msg(self):
+        return self.activity.snapshot([c["id"] for c in self.store.all()])
 
     def _channels_msg(self):
         return {"type": "channels", "channels": self.store.all()}
@@ -176,6 +196,7 @@ class App:
                     self.store.delete(msg.get("id"))
                 self.scanner.command("channels_changed")
                 self._broadcast(self._channels_msg())
+                self._broadcast(self._activity_msg())
             else:
                 raise ChannelError(f"unknown message type {kind!r}")
         except (ChannelError, ValueError, TypeError) as e:
@@ -189,6 +210,7 @@ class App:
         log.info("%s: connected", client.address)
         client.send_text(json.dumps(self._channels_msg()))
         client.send_text(json.dumps(self.status))
+        client.send_text(json.dumps(self._activity_msg()))
         try:
             async for msg in ws:
                 if msg.type == web.WSMsgType.TEXT:

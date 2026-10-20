@@ -162,6 +162,12 @@ SDR ──SoapySDR──▶ scanner thread ──audio──┬─▶ WebRTC Opu
   hold the scanner. The squelch opens at `max(6 dB, baseline + 6 dB)`, with
   3 dB of hysteresis, and the scanner re-measures once before stopping on a
   channel.
+- **Activity.** Under each channel name a small bar chart shows how busy
+  the channel was over the last hour, in 5-minute steps: the share of time
+  its squelch was open, with the hour's total beside it. Hover or tap a bar
+  for its value. Time the scanner spent away from a channel (listening
+  elsewhere) counts as not observed rather than quiet. Kept in
+  `data/activity.json`, so it survives restarts.
 - **Squelch fine-tuning.** Each channel has a squelch adjustment from
   −4 to +12 dB relative to the automatic level, set with the − / + buttons
   under the meter while the channel is playing, or in its Edit form.

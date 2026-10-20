@@ -60,8 +60,9 @@ def plan_windows(channels, fs):
 
 class Scanner:
     def __init__(self, store, make_source, on_audio, on_status,
-                 hang_s=2.0, dwell_blocks=4):
+                 hang_s=2.0, dwell_blocks=4, activity=None):
         self.store = store
+        self.activity = activity    # ActivityLog: how busy each channel is
         self.make_source = make_source
         self.on_audio = on_audio
         self.on_status = on_status
@@ -101,6 +102,8 @@ class Scanner:
     def shutdown(self):
         self._cmds.put(("shutdown", {}))
         self._thread.join(timeout=5)
+        if self.activity is not None:
+            self.activity.save()
 
     def snapshot(self):
         active = self.active
@@ -309,7 +312,9 @@ class Scanner:
             power = chz.channel_power(X, off, ch["bw"])
             noise = chz.local_noise(X, off)
             sq = self.squelch[ch["id"]]
-            if sq.update(power, noise) and sq.snr_db > best_snr:
+            is_open = sq.update(power, noise)
+            self._record(ch, is_open)
+            if is_open and sq.snr_db > best_snr:
                 best, best_snr = ch, sq.snr_db
         if best is not None and not self._confirm(w, best):
             log.debug("unconfirmed opening on %s (%.1f dB)", best["name"], best_snr)
@@ -321,6 +326,10 @@ class Scanner:
             self._wi -= 1               # rescan this window first after the call ends
             log.info("signal on %s (%.1f dB)", best["name"], best_snr)
             self._emit_status()
+
+    def _record(self, ch, busy):
+        if self.activity is not None:
+            self.activity.record(ch["id"], busy)
 
     def _confirm(self, w, ch):
         """Second dwell without retuning: lock only if the signal is still there.
@@ -356,6 +365,7 @@ class Scanner:
         sq = self.squelch[ch["id"]]
         was_open = sq.is_open
         is_open = sq.update(chz.channel_power(X, off, ch["bw"]), self._noise)
+        self._record(ch, is_open)
         audio = self._demod.process(chz.extract(X, off, ch["bw"]))
         if not is_open:
             audio = np.zeros_like(audio)
