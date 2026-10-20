@@ -1,6 +1,20 @@
-# WebRTC stack, installed from PyPI wheels in the Docker image (see Dockerfile).
-# numpy, scipy, aiohttp and SoapySDR come from Debian packages instead.
+# Installed from PyPI wheels in the Docker image (see Dockerfile); numpy,
+# scipy and SoapySDR come from Debian packages instead.
 # Pinned exactly so every build is identical.
+
+# Web server. Not Debian's python3-aiohttp: Debian 13 ships 3.11.16, which
+# lacks fixes for server-side DoS and request-smuggling CVEs (fixed in 3.14.4).
+aiohttp==3.14.4
+aiohappyeyeballs==2.7.1
+aiosignal==1.4.0
+attrs==26.1.0
+frozenlist==1.8.0
+idna==3.20
+multidict==6.9.1
+propcache==0.5.4
+yarl==1.25.1
+
+# WebRTC
 aiortc==1.11.0
 aioice==0.10.2
 av==14.2.0

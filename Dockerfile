@@ -17,9 +17,10 @@ RUN git clone --depth 1 --branch soapy-airspyhf-0.2.1 \
  && cmake --build /build -j1 \
  && DESTDIR=/out cmake --install /build
 
-# --- Stage 2: WebRTC libraries from PyPI wheels. Debian's python3-av drags in
-# the full FFmpeg (LLVM, Mesa, video codecs: ~350 MB); the wheel bundles a
-# minimal FFmpeg instead.
+# --- Stage 2: web server and WebRTC libraries from PyPI wheels (pinned in
+# requirements.txt). Debian's python3-av drags in the full FFmpeg (LLVM, Mesa,
+# video codecs: ~350 MB) where the wheel bundles a minimal one, and Debian's
+# python3-aiohttp is too old to have current security fixes.
 FROM debian:trixie-slim AS pydeps
 RUN apt-get update \
  && apt-get install -y --no-install-recommends python3-pip \
@@ -34,7 +35,7 @@ FROM debian:trixie-slim
 # are not needed and have been seen to crash the process on a Pi.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-      python3 python3-numpy python3-scipy python3-aiohttp \
+      python3 python3-numpy python3-scipy \
       python3-soapysdr soapysdr0.8-module-rtlsdr rtl-sdr libairspyhf1 \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=airspyhf /out/ /
