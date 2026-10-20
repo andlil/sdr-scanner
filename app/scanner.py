@@ -260,6 +260,7 @@ class Scanner:
         src.open()
         self._source = src
         self._chz = Channelizer(src.sample_rate)
+        self._demod = NfmDemodulator(self._chz.channel_rate)
         self.error = None
         self._replan()
         if self.state == "paused" and self.active is None:

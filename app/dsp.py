@@ -16,7 +16,7 @@ import numpy as np
 import scipy.fft as sfft
 from scipy import signal, special
 
-CHANNEL_RATE = 32_000       # complex baseband rate of an extracted channel
+CHANNEL_RATE = 32_000       # minimum complex baseband rate of an extracted channel
 AUDIO_RATE = 16_000         # audio sample rate sent to the browser
 SUB_FFT = 256               # IFFT size of an extracted channel
 
@@ -30,16 +30,21 @@ def _gamma_median(k):
 class Channelizer:
     """Overlap-save FFT channelizer.
 
+    The decimation D is the largest whole number keeping the channel rate
+    fs / D at or above CHANNEL_RATE: exactly 32 kHz for 1.024 MS/s and
+    768 kS/s, 32.57 kHz for the Airspy HF+'s 912 kS/s.
+
     Block layout: N = SUB_FFT * D samples per FFT, of which `overlap` are
     repeated from the previous block. Output per block is `step / D` samples
-    of channel baseband at CHANNEL_RATE.
+    of channel baseband at `channel_rate`.
     """
 
     def __init__(self, fs):
-        if fs % CHANNEL_RATE:
-            raise ValueError(f"sample rate {fs} is not a multiple of {CHANNEL_RATE}")
+        if fs < CHANNEL_RATE:
+            raise ValueError(f"sample rate {fs} is below {CHANNEL_RATE}")
         self.fs = fs
-        self.D = fs // CHANNEL_RATE
+        self.D = int(fs // CHANNEL_RATE)
+        self.channel_rate = fs / self.D
         self.N = SUB_FFT * self.D
         self.overlap = self.N // 4
         self.step = self.N - self.overlap
@@ -99,7 +104,7 @@ class Channelizer:
         return float(np.median(p)) / _gamma_median(X.shape[0])
 
     def extract(self, X, offset_hz, bw):
-        """Channel baseband at 32 kHz (K * step/D samples) from spectra()."""
+        """Channel baseband at channel_rate (K * step/D samples) from spectra()."""
         k = self.bin_of(offset_hz)
         sel = X[:, (k + self._sub_bins) % self.N] * self._filters[bw]
         y = sfft.ifft(sel, axis=1)[:, self.overlap // self.D:]
@@ -109,15 +114,53 @@ class Channelizer:
         return (y * rot[:, None]).astype(np.complex64).ravel()
 
 
-class NfmDemodulator:
-    """Narrowband FM discriminator -> 300-3000 Hz voice audio at AUDIO_RATE."""
+class Resampler:
+    """Streaming linear-interpolation resampler for band-limited audio.
 
-    def __init__(self, deviation=3_000):
-        self.scale = CHANNEL_RATE / (2 * np.pi * deviation)
+    Used after the 300-3400 Hz voice filter, so the interpolation's gentle
+    roll-off and residual aliasing are negligible. An exact 2:1 ratio takes
+    every other sample, as the original fixed 32 kHz -> 16 kHz path did.
+    """
+
+    def __init__(self, in_rate, out_rate):
+        self.step = in_rate / out_rate
+        self.exact = None
+        if abs(self.step - round(self.step)) < 1e-9:
+            self.exact = int(round(self.step))
+        self.reset()
+
+    def reset(self):
+        self._pos = 0.0             # position of the next output, in input samples
+        self._last = 0.0            # last input sample of the previous block
+
+    def process(self, x):
+        if self.exact:
+            start = int(self._pos)
+            out = x[start::self.exact]
+            self._pos = (start - len(x)) % self.exact
+            return out
+        buf = np.concatenate(([self._last], x))     # buf[0] is input position -1
+        n = int(np.floor((len(x) - 1 - self._pos) / self.step)) + 1 if len(x) - 1 >= self._pos else 0
+        t = self._pos + np.arange(n) * self.step + 1.0
+        i = np.floor(t).astype(int)
+        frac = t - i
+        out = buf[i] * (1 - frac) + buf[np.minimum(i + 1, len(buf) - 1)] * frac
+        self._pos += n * self.step - len(x)
+        self._last = x[-1]
+        return out
+
+
+class NfmDemodulator:
+    """Narrowband FM discriminator -> 300-3400 Hz voice audio at AUDIO_RATE."""
+
+    def __init__(self, rate=CHANNEL_RATE, deviation=3_000):
+        self.scale = rate / (2 * np.pi * deviation)
         self._prev = np.complex64(0)
-        # Voice band-pass (removes CTCSS tones and hiss) before decimating 2:1.
-        self._sos = signal.butter(4, [300, 3400], btype="band", fs=CHANNEL_RATE, output="sos")
+        # Voice band-pass (removes CTCSS tones and hiss), also the anti-alias
+        # filter for resampling down to AUDIO_RATE.
+        self._sos = signal.butter(4, [300, 3400], btype="band", fs=rate, output="sos")
         self._zi = signal.sosfilt_zi(self._sos) * 0
+        self._resampler = Resampler(rate, AUDIO_RATE)
         # De-emphasis: single pole at 300 Hz (inverse of the 6 dB/octave
         # pre-emphasis used on land-mobile NFM).
         a = math.exp(-2 * math.pi * 300 / AUDIO_RATE)
@@ -129,13 +172,14 @@ class NfmDemodulator:
         self._prev = np.complex64(0)
         self._zi[:] = 0
         self._de_zi[:] = 0
+        self._resampler.reset()
 
     def process(self, iq):
         x = np.concatenate(([self._prev], iq))
         self._prev = iq[-1]
         fm = np.angle(x[1:] * np.conj(x[:-1])) * self.scale
         audio, self._zi = signal.sosfilt(self._sos, fm, zi=self._zi)
-        audio = audio[::2]
+        audio = self._resampler.process(audio)
         audio, self._de_zi = signal.lfilter(self._de_b, self._de_a, audio, zi=self._de_zi)
         return self._level(audio)
 

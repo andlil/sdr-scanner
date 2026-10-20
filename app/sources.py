@@ -7,12 +7,13 @@ import time
 
 import numpy as np
 
-from .dsp import CHANNEL_RATE
 
 log = logging.getLogger(__name__)
 
-# Preferred sample rates, highest first. Must be multiples of CHANNEL_RATE.
-PREFERRED_RATES = (1_024_000, 768_000, 384_000, 256_000)
+# Sample rates to use, highest first. 912 kS/s needs Airspy HF+ firmware that
+# offers it; otherwise the Airspy runs at 768 kS/s.
+PREFERRED_RATES = (1_024_000, 912_000, 768_000, 384_000, 256_000)
+RATE_TOLERANCE = 0.05       # measured vs requested sample rate
 
 
 DRIVER_NAMES = {"rtlsdr": "RTL-SDR", "airspyhf": "Airspy HF+"}
@@ -77,8 +78,6 @@ class SoapySource:
         self.serial = hw.get("serial") or wanted.get("serial") or ""
         log.info("opened SDR %s, serial %s (%s) %s", self.name, self.serial or "?", driver, hw)
 
-        self.sample_rate = self._pick_rate()
-        self.dev.setSampleRate(SOAPY_SDR_RX, 0, self.sample_rate)
         self.freq_ranges = [(r.minimum(), r.maximum())
                             for r in self.dev.getFrequencyRange(SOAPY_SDR_RX, 0)]
         if self.ppm and "CORR" in self.dev.listFrequencies(SOAPY_SDR_RX, 0):
@@ -97,26 +96,57 @@ class SoapySource:
             # stalls on a busy Pi. SoapyRTLSDR flushes the ring on retune.
             stream_args = {"bufflen": "32768", "buffers": "32"}
         self.stream = self.dev.setupStream(SOAPY_SDR_RX, SOAPY_SDR_CF32, [0], stream_args)
-        self.dev.activateStream(self.stream)
         self._buf = np.empty(65536, np.complex64)
+        self.sample_rate = self._start_at_best_rate()
         self.center = 0
         log.info("SDR %s ready at %d S/s, range %s", self.name, self.sample_rate,
                  ", ".join(f"{a/1e6:.3f}-{b/1e6:.3f} MHz" for a, b in self.freq_ranges))
 
-    def _pick_rate(self):
+    def _candidate_rates(self):
+        """Preferred rates this device says it supports, highest first."""
         from SoapySDR import SOAPY_SDR_RX
         rates = set()
-        ranges = self.dev.getSampleRateRange(SOAPY_SDR_RX, 0)
-        for r in PREFERRED_RATES:
-            if any(rg.minimum() - 1 <= r <= rg.maximum() + 1 for rg in ranges):
-                rates.add(r)
-        for r in self.dev.listSampleRates(SOAPY_SDR_RX, 0):
-            if int(r) in PREFERRED_RATES:
-                rates.add(int(r))
+        for rg in self.dev.getSampleRateRange(SOAPY_SDR_RX, 0):
+            rates.update(r for r in PREFERRED_RATES if rg.minimum() - 1 <= r <= rg.maximum() + 1)
+        listed = {int(r) for r in self.dev.listSampleRates(SOAPY_SDR_RX, 0)}
+        rates.update(r for r in PREFERRED_RATES if r in listed)
         if not rates:
             raise SourceError("SDR supports none of the sample rates "
                               + ", ".join(map(str, PREFERRED_RATES)))
-        return max(rates)
+        return sorted(rates, reverse=True)
+
+    def _start_at_best_rate(self):
+        """Start streaming at the highest rate the device really delivers.
+
+        A device can list a rate and still not run at it: SoapyAirspyHF only
+        applies the rate when streaming starts and ignores errors, after which
+        it reports the requested rate anyway. Running the DSP at a different
+        rate than the hardware would put every channel on the wrong frequency,
+        so measure the actual sample flow and fall back to the next rate.
+        """
+        from SoapySDR import SOAPY_SDR_RX
+        for rate in self._candidate_rates():
+            self.dev.setSampleRate(SOAPY_SDR_RX, 0, rate)
+            self.dev.activateStream(self.stream)
+            try:
+                measured = self._measure_rate(rate)
+            except SourceError:
+                measured = 0.0                  # no samples at all at this rate
+            if abs(measured / rate - 1) <= RATE_TOLERANCE:
+                log.info("sample rate %d S/s confirmed (measured %.0f)", rate, measured)
+                return rate
+            log.warning("sample rate %d S/s not delivered (measured %.0f), trying a lower one",
+                        rate, measured)
+            self.dev.deactivateStream(self.stream)
+        raise SourceError("SDR does not deliver any of the supported sample rates")
+
+    def _measure_rate(self, expected):
+        """Samples per second actually arriving (about 1 s of streaming)."""
+        self.read(int(0.3 * expected))          # drain start-up backlog
+        n = int(0.6 * expected)
+        t0 = time.monotonic()
+        self.read(n)
+        return n / max(time.monotonic() - t0, 1e-6)
 
     def tune(self, freq):
         from SoapySDR import SOAPY_SDR_RX

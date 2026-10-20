@@ -133,9 +133,15 @@ Receiver coverage:
 | Receiver   | Range                             | Sample rate used |
 |------------|-----------------------------------|------------------|
 | RTL-SDR    | about 24–1766 MHz                 | 1.024 MS/s       |
-| Airspy HF+ | 9 kHz–31 MHz and 60–260 MHz       | 768 kS/s         |
+| Airspy HF+ | 9 kHz–31 MHz and 60–260 MHz       | 912 kS/s with firmware that offers it, otherwise 768 kS/s |
 
 Channels outside the receiver's range are marked in the UI and skipped.
+
+At start-up the scanner picks the highest of these rates the receiver lists,
+then measures the samples actually arriving for about a second. A rate that
+isn't really delivered (the Airspy driver silently keeps the old rate if the
+firmware refuses) is logged and the next lower one is tried. A wider rate
+lets more channels share one tuning window, so they are scanned more often.
 
 ## How it works
 
